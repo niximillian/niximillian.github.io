@@ -31,9 +31,7 @@
   h2 { font-size: 20px; margin: 6px 0 8px; }
 
   .hint { color: var(--hint); font-size: 13px; line-height: 1.45; margin: 0 0 18px; }
-  .hint.err { color: #ff5b5b; font-weight: 500; }
 
-  /* Зачеркнутая жирная Б — символ рублей */
   .rub {
     font-weight: 700;
     text-decoration: line-through;
@@ -77,6 +75,8 @@
     background: var(--sec); color: var(--text);
     font-size: 15px; font-family: inherit;
     cursor: pointer; margin-top: 14px;
+    position: relative;
+    z-index: 10;
   }
   .ghost:active { opacity: .7; }
 
@@ -145,11 +145,6 @@ const tg = window.Telegram && window.Telegram.WebApp;
 if (tg) {
   tg.ready();
   tg.expand();
-  if (tg.BackButton) {
-    tg.BackButton.onClick(() => {
-      if (step > 0) { haptic('impact'); step--; render(); }
-    });
-  }
 }
 
 const screenEl = document.getElementById('screen');
@@ -157,9 +152,9 @@ const screenEl = document.getElementById('screen');
 /* ============================================================
    Константы
    ============================================================ */
-const EL_POWER = 1.5;    // кВт
-const EL_RATE  = 0.35;   // за кВт·ч
-const AM_RATE  = 0.15;   // за час
+const EL_POWER = 1.5;
+const EL_RATE  = 0.35;
+const AM_RATE  = 0.15;
 
 /* ============================================================
    Состояние
@@ -201,7 +196,7 @@ function haptic(type) {
 }
 
 function showErr(msg) {
-  haptic('error');
+  try { haptic('error'); } catch (e) {}
   if (tg && tg.showAlert) tg.showAlert(msg);
   else alert(msg);
 }
@@ -224,10 +219,15 @@ const calcCost = () => calcMat() + calcEl() + calcAm() + calcDef() + calcWork();
    Роутер
    ============================================================ */
 function render() {
-  if (tg && tg.BackButton) {
-    if (step === 0) tg.BackButton.hide();
-    else tg.BackButton.show();
-  }
+  try {
+    if (tg && tg.BackButton) {
+      if (step === 0) tg.BackButton.hide();
+      else {
+        tg.BackButton.show();
+        tg.BackButton.onClick(goBack);
+      }
+    }
+  } catch (e) {}
 
   const s = STEPS[step];
   switch (s) {
@@ -246,27 +246,41 @@ function render() {
 }
 
 function goBack() {
-  haptic('impact');
+  try { haptic('impact'); } catch (e) {}
   if (step > 0) { step--; render(); }
 }
 
 /* ============================================================
-   Сброс — без подтверждения, мгновенно
+   СБРОС — глобальная функция + защита от ошибок
    ============================================================ */
-function resetAll() {
-  haptic('impact');
-  data = {
-    name: '',
-    mat_w: null, mat_wa: null, mat_p: null,
-    el_h: null,
-    am_h: null,
-    def: null,
-    w_r: null, w_h: null
-  };
-  markup = null;
-  step = 0;
-  render();
-}
+window.resetAll = function() {
+  try {
+    // 1. Сбрасываем данные
+    data = {
+      name: '',
+      mat_w: null, mat_wa: null, mat_p: null,
+      el_h: null,
+      am_h: null,
+      def: null,
+      w_r: null, w_h: null
+    };
+
+    // 2. Сбрасываем наценку и шаг
+    markup = null;
+    step = 0;
+
+    // 3. Перерисовываем
+    render();
+
+    // 4. Визуальный отклик
+    try { haptic('success'); } catch (e) {}
+  } catch (err) {
+    // Если что-то упало — показываем пользователю
+    const msg = 'Ошибка при сбросе: ' + (err && err.message ? err.message : err);
+    if (tg && tg.showAlert) tg.showAlert(msg);
+    else alert(msg);
+  }
+};
 
 /* ============================================================
    Общий шаблон шага с числовым вводом
@@ -274,7 +288,7 @@ function resetAll() {
 function numStep({ title, sub, label, ph, key, previewFn }) {
   const cur = data[key];
   screenEl.innerHTML = `
-    <button class="back" id="backBtn">‹ Назад</button>
+    <button class="back" id="backBtn" type="button">‹ Назад</button>
     <h2>${title}</h2>
     <p class="hint">${sub}</p>
     <label>${label}
@@ -282,7 +296,7 @@ function numStep({ title, sub, label, ph, key, previewFn }) {
              value="${cur === null ? '' : cur}" autocomplete="off">
     </label>
     ${previewFn ? `<div class="preview"><span>Стоимость</span><b id="pv">—</b></div>` : ''}
-    <button class="primary" id="okBtn">Далее</button>
+    <button class="primary" id="okBtn" type="button">Далее</button>
   `;
 
   const inp = document.getElementById('inp');
@@ -300,16 +314,16 @@ function numStep({ title, sub, label, ph, key, previewFn }) {
     upd();
   }
 
-  document.getElementById('backBtn').onclick = goBack;
+  document.getElementById('backBtn').addEventListener('click', goBack);
 
-  ok.onclick = () => {
+  ok.addEventListener('click', () => {
     const n = toNum(inp.value);
     if (isNaN(n) || n < 0) { showErr('Введите корректное число'); return; }
     data[key] = n;
-    haptic('success');
+    try { haptic('success'); } catch (e) {}
     step++;
     render();
-  };
+  });
 
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') ok.click(); });
   setTimeout(() => { try { inp.focus(); } catch(e){} }, 120);
@@ -326,20 +340,20 @@ function renderName() {
       <input id="inp" type="text" placeholder="Например: Ваза №1"
              value="${esc(data.name)}" autocomplete="off">
     </label>
-    <button class="primary" id="okBtn">Начать</button>
+    <button class="primary" id="okBtn" type="button">Начать</button>
   `;
 
   const inp = document.getElementById('inp');
   const ok  = document.getElementById('okBtn');
 
-  ok.onclick = () => {
+  ok.addEventListener('click', () => {
     const v = inp.value.trim();
     if (!v) { showErr('Введите наименование модели'); return; }
     data.name = v;
-    haptic('success');
+    try { haptic('success'); } catch (e) {}
     step++;
     render();
-  };
+  });
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') ok.click(); });
   setTimeout(() => { try { inp.focus(); } catch(e){} }, 120);
 }
@@ -408,22 +422,22 @@ function renderAmH() {
 }
 
 /* ============================================================
-   Шаг 6 — Брак (выбор процента)
+   Шаг 6 — Брак
    ============================================================ */
 function renderDef() {
   screenEl.innerHTML = `
-    <button class="back" id="backBtn">‹ Назад</button>
+    <button class="back" id="backBtn" type="button">‹ Назад</button>
     <h2>Брак</h2>
     <p class="hint">Выберите процент брака от стоимости материала</p>
 
     <div class="chips">
       ${[5,10,15].map(p =>
-        `<button class="chip ${data.def === p ? 'active' : ''}" data-p="${p}">${p}%</button>`
+        `<button class="chip ${data.def === p ? 'active' : ''}" type="button" data-p="${p}">${p}%</button>`
       ).join('')}
     </div>
 
     <div class="preview"><span>Стоимость брака</span><b id="pv">—</b></div>
-    <button class="primary" id="okBtn" ${data.def === null ? 'disabled style="opacity:.4"' : ''}>Далее</button>
+    <button class="primary" id="okBtn" type="button" ${data.def === null ? 'disabled style="opacity:.4"' : ''}>Далее</button>
   `;
 
   const pv = document.getElementById('pv');
@@ -435,70 +449,70 @@ function renderDef() {
   }
 
   screenEl.querySelectorAll('.chip').forEach(c => {
-    c.onclick = () => {
-      haptic('impact');
+    c.addEventListener('click', () => {
+      try { haptic('impact'); } catch (e) {}
       data.def = Number(c.dataset.p);
       screenEl.querySelectorAll('.chip').forEach(x =>
         x.classList.toggle('active', Number(x.dataset.p) === data.def)
       );
       ok.disabled = false;
-      ok.removeAttribute('style');
+      ok.style.opacity = '1';
       updPv();
-    };
+    });
   });
 
-  document.getElementById('backBtn').onclick = goBack;
+  document.getElementById('backBtn').addEventListener('click', goBack);
 
-  ok.onclick = () => {
+  ok.addEventListener('click', () => {
     if (data.def === null) { showErr('Выберите процент брака'); return; }
-    haptic('success');
+    try { haptic('success'); } catch (e) {}
     step++;
     render();
-  };
+  });
 
   updPv();
 }
 
 /* ============================================================
-   Шаг 7 — Работа: ставка (выбор)
+   Шаг 7 — Работа: ставка
    ============================================================ */
 function renderWR() {
   screenEl.innerHTML = `
-    <button class="back" id="backBtn">‹ Назад</button>
+    <button class="back" id="backBtn" type="button">‹ Назад</button>
     <h2>Работа</h2>
     <p class="hint">Шаг 1 из 2 — выберите ставку за час обработки</p>
 
     <div class="chips">
       ${[5,6,7].map(r =>
-        `<button class="chip ${data.w_r === r ? 'active' : ''}" data-r="${r}">${r} <span class="rub">Б</span>/ч</button>`
+        `<button class="chip ${data.w_r === r ? 'active' : ''}" type="button" data-r="${r}">${r} <span class="rub">Б</span>/ч</button>`
       ).join('')}
     </div>
 
-    <button class="primary" id="okBtn" ${data.w_r === null ? 'disabled style="opacity:.4"' : ''}>Далее</button>
+    <button class="primary" id="okBtn" type="button" ${data.w_r === null ? 'disabled style="opacity:.4"' : ''}>Далее</button>
   `;
 
   const ok = document.getElementById('okBtn');
 
   screenEl.querySelectorAll('.chip').forEach(c => {
-    c.onclick = () => {
-      haptic('impact');
+    c.addEventListener('click', () => {
+      try { haptic('impact'); } catch (e) {}
       data.w_r = Number(c.dataset.r);
       screenEl.querySelectorAll('.chip').forEach(x =>
         x.classList.toggle('active', Number(x.dataset.r) === data.w_r)
       );
       ok.disabled = false;
-      ok.removeAttribute('style');
-    };
+      ok.style.opacity = '1';
+    });
   });
 
-  document.getElementById('backBtn').onclick = goBack;
+  document.getElementById('backBtn').addEventListener('click', goBack);
 
-  ok.onclick = () => {
+  ok.addEventListener('click', () => {
     if (data.w_r === null) { showErr('Выберите ставку'); return; }
-    haptic('success');
+    try { haptic('success'); } catch (e) {}
     step++;
     render();
-  };
+  });
 }
 
 /* ============================================================
@@ -540,7 +554,7 @@ function renderResult() {
   }
 
   screenEl.innerHTML = `
-    <button class="back" id="backBtn">‹ Назад</button>
+    <button class="back" id="backBtn" type="button">‹ Назад</button>
     <div class="model-badge">Модель: ${esc(data.name)}</div>
     <h2>Результат расчёта</h2>
 
@@ -556,25 +570,34 @@ function renderResult() {
     <h2 style="margin:24px 0 10px">Наценка</h2>
     <div class="chips four">
       ${[0,100,200,300].map(p =>
-        `<button class="chip ${markup === p ? 'active' : ''}" data-m="${p}">${p}%</button>`
+        `<button class="chip ${markup === p ? 'active' : ''}" type="button" data-m="${p}">${p}%</button>`
       ).join('')}
     </div>
 
     ${markupBlock}
 
-    <button class="ghost" id="resetBtn">Начать заново</button>
+    <button class="ghost" id="resetBtn" type="button" onclick="resetAll()">Начать заново</button>
   `;
 
   screenEl.querySelectorAll('.chip').forEach(c => {
-    c.onclick = () => {
-      haptic('impact');
+    c.addEventListener('click', () => {
+      try { haptic('impact'); } catch (e) {}
       markup = Number(c.dataset.m);
       render();
-    };
+    });
   });
 
-  document.getElementById('backBtn').onclick = goBack;
-  document.getElementById('resetBtn').onclick = resetAll;
+  document.getElementById('backBtn').addEventListener('click', goBack);
+
+  // Двойная страховка: и inline onclick, и addEventListener
+  const rb = document.getElementById('resetBtn');
+  if (rb) {
+    rb.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.resetAll();
+    });
+  }
 }
 
 /* ============================================================
