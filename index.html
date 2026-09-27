@@ -192,10 +192,6 @@ function fmt(n) {
   return s + ' <span class="rub">Б</span>';
 }
 
-function fmtPlain(n) {
-  return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
-}
-
 function haptic(type) {
   try {
     if (!tg || !tg.HapticFeedback) return;
@@ -254,6 +250,9 @@ function goBack() {
   if (step > 0) { step--; render(); }
 }
 
+/* ============================================================
+   Сброс — без подтверждения, мгновенно
+   ============================================================ */
 function resetAll() {
   haptic('impact');
   data = {
@@ -269,18 +268,10 @@ function resetAll() {
   render();
 }
 
-function confirmReset() {
-  if (tg && tg.showConfirm) {
-    tg.showConfirm('Сбросить все данные и начать заново?', ok => { if (ok) resetAll(); });
-  } else {
-    resetAll();
-  }
-}
-
 /* ============================================================
    Общий шаблон шага с числовым вводом
    ============================================================ */
-function numStep({ title, sub, label, ph, key, previewFn, unit }) {
+function numStep({ title, sub, label, ph, key, previewFn }) {
   const cur = data[key];
   screenEl.innerHTML = `
     <button class="back" id="backBtn">‹ Назад</button>
@@ -583,7 +574,7 @@ function renderResult() {
   });
 
   document.getElementById('backBtn').onclick = goBack;
-  document.getElementById('resetBtn').onclick = confirmReset;
+  document.getElementById('resetBtn').onclick = resetAll;
 }
 
 /* ============================================================
