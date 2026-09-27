@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Калькулятор стоимости 3D-печати</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #000000);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --btn: var(--tg-theme-button-color, #2ea6ff);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --sec: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --sep: rgba(128, 128, 128, .22);
+  }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 16px; -webkit-font-smoothing: antialiased;
+  }
+  body { padding: 16px 16px 40px; }
+  .wrap { max-width: 480px; margin: 0 auto; }
+
+  h1 { font-size: 21px; margin: 8px 0 6px; line-height: 1.25; }
+  h2 { font-size: 20px; margin: 6px 0 8px; }
+
+  .hint { color: var(--hint); font-size: 13px; line-height: 1.45; margin: 0 0 18px; }
+  .hint.err { color: #ff5b5b; font-weight: 500; }
+
+  /* Зачеркнутая жирная Б — символ рублей */
+  .rub {
+    font-weight: 700;
+    text-decoration: line-through;
+    text-decoration-thickness: 2px;
+    padding: 0 .08em;
+  }
+
+  label {
+    display: block; font-size: 13px;
+    color: var(--hint); margin-bottom: 14px;
+  }
+  label input {
+    display: block; width: 100%; margin-top: 6px;
+    padding: 14px;
+    border: 1.5px solid transparent; border-radius: 12px;
+    background: var(--sec); color: var(--text);
+    font-size: 17px; font-family: inherit;
+    outline: none;
+  }
+  label input:focus { border-color: var(--btn); }
+
+  .back {
+    background: none; border: none; padding: 4px 0;
+    color: var(--btn); font-size: 15px; font-family: inherit;
+    cursor: pointer; margin-bottom: 8px;
+  }
+
+  .primary {
+    display: block; width: 100%; padding: 15px;
+    border: none; border-radius: 12px;
+    background: var(--btn); color: var(--btn-text);
+    font-size: 16px; font-weight: 600; font-family: inherit;
+    cursor: pointer; margin-top: 6px;
+    transition: opacity .15s;
+  }
+  .primary:active { opacity: .8; }
+
+  .ghost {
+    display: block; width: 100%; padding: 14px;
+    border: none; border-radius: 12px;
+    background: var(--sec); color: var(--text);
+    font-size: 15px; font-family: inherit;
+    cursor: pointer; margin-top: 14px;
+  }
+  .ghost:active { opacity: .7; }
+
+  .preview {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--sec); border-radius: 12px;
+    padding: 14px; margin: 6px 0 16px;
+    font-size: 14px; color: var(--hint);
+  }
+  .preview b { font-size: 17px; color: var(--text); font-weight: 600; }
+
+  .chips { display: flex; gap: 8px; margin-bottom: 18px; }
+  .chip {
+    flex: 1; padding: 15px 4px;
+    border: 2px solid transparent; border-radius: 12px;
+    background: var(--sec); color: var(--text);
+    font-size: 15px; font-weight: 600; font-family: inherit;
+    cursor: pointer; transition: all .15s;
+  }
+  .chip:active { opacity: .7; }
+  .chip.active { border-color: var(--btn); color: var(--btn); background: transparent; }
+  .chips.four .chip { font-size: 14px; padding: 14px 2px; }
+
+  .card { background: var(--sec); border-radius: 14px; padding: 4px 16px; }
+
+  .result-row {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 11px 0; font-size: 14px;
+    border-bottom: 1px solid var(--sep);
+    gap: 12px;
+  }
+  .result-row span:first-child { color: var(--hint); flex: 1; }
+  .result-row span:last-child { white-space: nowrap; }
+  .result-row:last-child { border-bottom: none; }
+
+  .total {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 15px 0 16px;
+    font-size: 17px; font-weight: 700;
+    border-top: 1px solid var(--sep);
+    gap: 12px;
+  }
+  .total span:last-child { color: var(--btn); white-space: nowrap; }
+
+  .final .total { border-top: none; font-size: 20px; }
+
+  .model-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--sec);
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--hint);
+    margin-bottom: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="screen"></div>
+
+<script>
+/* ============================================================
+   Инициализация Telegram WebApp
+   ============================================================ */
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  if (tg.BackButton) {
+    tg.BackButton.onClick(() => {
+      if (step > 0) { haptic('impact'); step--; render(); }
+    });
+  }
+}
+
+const screenEl = document.getElementById('screen');
+
+/* ============================================================
+   Константы
+   ============================================================ */
+const EL_POWER = 1.5;    // кВт
+const EL_RATE  = 0.35;   // за кВт·ч
+const AM_RATE  = 0.15;   // за час
+
+/* ============================================================
+   Состояние
+   ============================================================ */
+let step = 0;
+let markup = null;
+
+let data = {
+  name: '',
+  mat_w: null, mat_wa: null, mat_p: null,
+  el_h: null,
+  am_h: null,
+  def: null,
+  w_r: null, w_h: null
+};
+
+const STEPS = ['name','mat_w','mat_wa','mat_p','el_h','am_h','def','w_r','w_h','result'];
+
+/* ============================================================
+   Утилиты
+   ============================================================ */
+function toNum(v) {
+  if (v === '' || v === null || v === undefined) return NaN;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return isFinite(n) ? n : NaN;
+}
+
+function fmt(n) {
+  const s = (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
+  return s + ' <span class="rub">Б</span>';
+}
+
+function fmtPlain(n) {
+  return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',');
+}
+
+function haptic(type) {
+  try {
+    if (!tg || !tg.HapticFeedback) return;
+    if (type === 'impact') tg.HapticFeedback.impactOccurred('light');
+    else tg.HapticFeedback.notificationOccurred(type);
+  } catch (e) {}
+}
+
+function showErr(msg) {
+  haptic('error');
+  if (tg && tg.showAlert) tg.showAlert(msg);
+  else alert(msg);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ============================================================
+   Формулы
+   ============================================================ */
+const calcMat  = () => (data.mat_w + data.mat_wa) / 1000 * data.mat_p;
+const calcEl   = () => data.el_h * EL_POWER * EL_RATE;
+const calcAm   = () => data.am_h * AM_RATE;
+const calcDef  = () => calcMat() * data.def / 100;
+const calcWork = () => data.w_r * data.w_h;
+const calcCost = () => calcMat() + calcEl() + calcAm() + calcDef() + calcWork();
+
+/* ============================================================
+   Роутер
+   ============================================================ */
+function render() {
+  if (tg && tg.BackButton) {
+    if (step === 0) tg.BackButton.hide();
+    else tg.BackButton.show();
+  }
+
+  const s = STEPS[step];
+  switch (s) {
+    case 'name':   renderName(); break;
+    case 'mat_w':  renderMatW(); break;
+    case 'mat_wa': renderMatWa(); break;
+    case 'mat_p':  renderMatP(); break;
+    case 'el_h':   renderElH(); break;
+    case 'am_h':   renderAmH(); break;
+    case 'def':    renderDef(); break;
+    case 'w_r':    renderWR(); break;
+    case 'w_h':    renderWH(); break;
+    case 'result': renderResult(); break;
+  }
+  window.scrollTo(0, 0);
+}
+
+function goBack() {
+  haptic('impact');
+  if (step > 0) { step--; render(); }
+}
+
+function resetAll() {
+  haptic('impact');
+  data = {
+    name: '',
+    mat_w: null, mat_wa: null, mat_p: null,
+    el_h: null,
+    am_h: null,
+    def: null,
+    w_r: null, w_h: null
+  };
+  markup = null;
+  step = 0;
+  render();
+}
+
+function confirmReset() {
+  if (tg && tg.showConfirm) {
+    tg.showConfirm('Сбросить все данные и начать заново?', ok => { if (ok) resetAll(); });
+  } else {
+    resetAll();
+  }
+}
+
+/* ============================================================
+   Общий шаблон шага с числовым вводом
+   ============================================================ */
+function numStep({ title, sub, label, ph, key, previewFn, unit }) {
+  const cur = data[key];
+  screenEl.innerHTML = `
+    <button class="back" id="backBtn">‹ Назад</button>
+    <h2>${title}</h2>
+    <p class="hint">${sub}</p>
+    <label>${label}
+      <input id="inp" type="text" inputmode="decimal" placeholder="${ph || '0'}"
+             value="${cur === null ? '' : cur}" autocomplete="off">
+    </label>
+    ${previewFn ? `<div class="preview"><span>Стоимость</span><b id="pv">—</b></div>` : ''}
+    <button class="primary" id="okBtn">Далее</button>
+  `;
+
+  const inp = document.getElementById('inp');
+  const ok  = document.getElementById('okBtn');
+  const pv  = document.getElementById('pv');
+
+  if (previewFn && pv) {
+    const upd = () => {
+      const n = toNum(inp.value);
+      if (isNaN(n)) { pv.innerHTML = '—'; return; }
+      const res = previewFn(n);
+      pv.innerHTML = (res === null || res === undefined) ? '—' : res;
+    };
+    inp.addEventListener('input', upd);
+    upd();
+  }
+
+  document.getElementById('backBtn').onclick = goBack;
+
+  ok.onclick = () => {
+    const n = toNum(inp.value);
+    if (isNaN(n) || n < 0) { showErr('Введите корректное число'); return; }
+    data[key] = n;
+    haptic('success');
+    step++;
+    render();
+  };
+
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') ok.click(); });
+  setTimeout(() => { try { inp.focus(); } catch(e){} }, 120);
+}
+
+/* ============================================================
+   Шаг 0 — Наименование модели
+   ============================================================ */
+function renderName() {
+  screenEl.innerHTML = `
+    <h1>Калькулятор 3D-печати</h1>
+    <p class="hint">Введите наименование модели, чтобы начать расчёт</p>
+    <label>Наименование модели
+      <input id="inp" type="text" placeholder="Например: Ваза №1"
+             value="${esc(data.name)}" autocomplete="off">
+    </label>
+    <button class="primary" id="okBtn">Начать</button>
+  `;
+
+  const inp = document.getElementById('inp');
+  const ok  = document.getElementById('okBtn');
+
+  ok.onclick = () => {
+    const v = inp.value.trim();
+    if (!v) { showErr('Введите наименование модели'); return; }
+    data.name = v;
+    haptic('success');
+    step++;
+    render();
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') ok.click(); });
+  setTimeout(() => { try { inp.focus(); } catch(e){} }, 120);
+}
+
+/* ============================================================
+   Шаг 1 — Материал: вес
+   ============================================================ */
+function renderMatW() {
+  numStep({
+    title: 'Материал',
+    sub: 'Шаг 1 из 3 — вес изделия',
+    label: 'Вес изделия, г',
+    key: 'mat_w'
+  });
+}
+
+/* ============================================================
+   Шаг 2 — Материал: отходы
+   ============================================================ */
+function renderMatWa() {
+  numStep({
+    title: 'Материал',
+    sub: 'Шаг 2 из 3 — отходы (поддержки, брак печати)',
+    label: 'Отходы, г',
+    key: 'mat_wa'
+  });
+}
+
+/* ============================================================
+   Шаг 3 — Материал: цена за кг
+   ============================================================ */
+function renderMatP() {
+  numStep({
+    title: 'Материал',
+    sub: 'Шаг 3 из 3 — цена материала за килограмм',
+    label: 'Цена за кг, <span class="rub">Б</span>',
+    key: 'mat_p',
+    previewFn: (v) => fmt((data.mat_w + data.mat_wa) / 1000 * v)
+  });
+}
+
+/* ============================================================
+   Шаг 4 — Электричество: часы
+   ============================================================ */
+function renderElH() {
+  numStep({
+    title: 'Электричество',
+    sub: `Формула: время × ${String(EL_POWER).replace('.',',')} кВт × ${String(EL_RATE).replace('.',',')} <span class="rub">Б</span>/кВт·ч`,
+    label: 'Время печати, ч',
+    key: 'el_h',
+    previewFn: (v) => fmt(v * EL_POWER * EL_RATE)
+  });
+}
+
+/* ============================================================
+   Шаг 5 — Амортизация: часы
+   ============================================================ */
+function renderAmH() {
+  numStep({
+    title: 'Амортизация',
+    sub: `Формула: время × ${String(AM_RATE).replace('.',',')} <span class="rub">Б</span>/ч`,
+    label: 'Время печати, ч',
+    key: 'am_h',
+    previewFn: (v) => fmt(v * AM_RATE)
+  });
+}
+
+/* ============================================================
+   Шаг 6 — Брак (выбор процента)
+   ============================================================ */
+function renderDef() {
+  screenEl.innerHTML = `
+    <button class="back" id="backBtn">‹ Назад</button>
+    <h2>Брак</h2>
+    <p class="hint">Выберите процент брака от стоимости материала</p>
+
+    <div class="chips">
+      ${[5,10,15].map(p =>
+        `<button class="chip ${data.def === p ? 'active' : ''}" data-p="${p}">${p}%</button>`
+      ).join('')}
+    </div>
+
+    <div class="preview"><span>Стоимость брака</span><b id="pv">—</b></div>
+    <button class="primary" id="okBtn" ${data.def === null ? 'disabled style="opacity:.4"' : ''}>Далее</button>
+  `;
+
+  const pv = document.getElementById('pv');
+  const ok = document.getElementById('okBtn');
+
+  function updPv() {
+    if (data.def === null) { pv.innerHTML = '—'; return; }
+    pv.innerHTML = fmt(calcMat() * data.def / 100);
+  }
+
+  screenEl.querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => {
+      haptic('impact');
+      data.def = Number(c.dataset.p);
+      screenEl.querySelectorAll('.chip').forEach(x =>
+        x.classList.toggle('active', Number(x.dataset.p) === data.def)
+      );
+      ok.disabled = false;
+      ok.removeAttribute('style');
+      updPv();
+    };
+  });
+
+  document.getElementById('backBtn').onclick = goBack;
+
+  ok.onclick = () => {
+    if (data.def === null) { showErr('Выберите процент брака'); return; }
+    haptic('success');
+    step++;
+    render();
+  };
+
+  updPv();
+}
+
+/* ============================================================
+   Шаг 7 — Работа: ставка (выбор)
+   ============================================================ */
+function renderWR() {
+  screenEl.innerHTML = `
+    <button class="back" id="backBtn">‹ Назад</button>
+    <h2>Работа</h2>
+    <p class="hint">Шаг 1 из 2 — выберите ставку за час обработки</p>
+
+    <div class="chips">
+      ${[5,6,7].map(r =>
+        `<button class="chip ${data.w_r === r ? 'active' : ''}" data-r="${r}">${r} <span class="rub">Б</span>/ч</button>`
+      ).join('')}
+    </div>
+
+    <button class="primary" id="okBtn" ${data.w_r === null ? 'disabled style="opacity:.4"' : ''}>Далее</button>
+  `;
+
+  const ok = document.getElementById('okBtn');
+
+  screenEl.querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => {
+      haptic('impact');
+      data.w_r = Number(c.dataset.r);
+      screenEl.querySelectorAll('.chip').forEach(x =>
+        x.classList.toggle('active', Number(x.dataset.r) === data.w_r)
+      );
+      ok.disabled = false;
+      ok.removeAttribute('style');
+    };
+  });
+
+  document.getElementById('backBtn').onclick = goBack;
+
+  ok.onclick = () => {
+    if (data.w_r === null) { showErr('Выберите ставку'); return; }
+    haptic('success');
+    step++;
+    render();
+  };
+}
+
+/* ============================================================
+   Шаг 8 — Работа: часы
+   ============================================================ */
+function renderWH() {
+  numStep({
+    title: 'Работа',
+    sub: `Шаг 2 из 2 — ставка ${data.w_r} <span class="rub">Б</span>/ч`,
+    label: 'Часы обработки',
+    key: 'w_h',
+    previewFn: (v) => fmt(data.w_r * v)
+  });
+}
+
+/* ============================================================
+   Шаг 9 — Результат
+   ============================================================ */
+function renderResult() {
+  const mat = calcMat();
+  const el  = calcEl();
+  const am  = calcAm();
+  const de  = calcDef();
+  const wo  = calcWork();
+  const cost = mat + el + am + de + wo;
+
+  let markupBlock = '';
+  if (markup !== null) {
+    const profit = cost * markup / 100;
+    const price  = cost + profit;
+    markupBlock = `
+      <div class="card" style="margin-top:16px">
+        <div class="result-row"><span>Наценка ${markup}%</span><span>+ ${fmt(profit)}</span></div>
+      </div>
+      <div class="card final" style="margin-top:8px">
+        <div class="total"><span>Итоговая цена</span><span>${fmt(price)}</span></div>
+      </div>
+    `;
+  }
+
+  screenEl.innerHTML = `
+    <button class="back" id="backBtn">‹ Назад</button>
+    <div class="model-badge">Модель: ${esc(data.name)}</div>
+    <h2>Результат расчёта</h2>
+
+    <div class="card">
+      <div class="result-row"><span>Материал</span><span>${fmt(mat)}</span></div>
+      <div class="result-row"><span>Электричество</span><span>${fmt(el)}</span></div>
+      <div class="result-row"><span>Амортизация</span><span>${fmt(am)}</span></div>
+      <div class="result-row"><span>Брак (${data.def}%)</span><span>${fmt(de)}</span></div>
+      <div class="result-row"><span>Работа</span><span>${fmt(wo)}</span></div>
+      <div class="total"><span>Себестоимость</span><span>${fmt(cost)}</span></div>
+    </div>
+
+    <h2 style="margin:24px 0 10px">Наценка</h2>
+    <div class="chips four">
+      ${[0,100,200,300].map(p =>
+        `<button class="chip ${markup === p ? 'active' : ''}" data-m="${p}">${p}%</button>`
+      ).join('')}
+    </div>
+
+    ${markupBlock}
+
+    <button class="ghost" id="resetBtn">Начать заново</button>
+  `;
+
+  screenEl.querySelectorAll('.chip').forEach(c => {
+    c.onclick = () => {
+      haptic('impact');
+      markup = Number(c.dataset.m);
+      render();
+    };
+  });
+
+  document.getElementById('backBtn').onclick = goBack;
+  document.getElementById('resetBtn').onclick = confirmReset;
+}
+
+/* ============================================================
+   Старт
+   ============================================================ */
+render();
+</script>
+</body>
+</html>
