@@ -165,13 +165,23 @@ let markup = null;
 let data = {
   name: '',
   mat_w: null, mat_wa: null, mat_p: null,
+  extra: null,
   el_h: null,
   am_h: null,
   def: null,
   w_r: null, w_h: null
 };
 
-const STEPS = ['name','mat_w','mat_wa','mat_p','el_h','am_h','def','w_r','w_h','result'];
+const STEPS = [
+  'name',
+  'mat_w', 'mat_wa', 'mat_p',
+  'extra',
+  'el_h',
+  'am_h',
+  'def',
+  'w_r', 'w_h',
+  'result'
+];
 
 /* ============================================================
    Утилиты
@@ -208,12 +218,13 @@ function esc(s) {
 /* ============================================================
    Формулы
    ============================================================ */
-const calcMat  = () => (data.mat_w + data.mat_wa) / 1000 * data.mat_p;
-const calcEl   = () => data.el_h * EL_POWER * EL_RATE;
-const calcAm   = () => data.am_h * AM_RATE;
-const calcDef  = () => calcMat() * data.def / 100;
-const calcWork = () => data.w_r * data.w_h;
-const calcCost = () => calcMat() + calcEl() + calcAm() + calcDef() + calcWork();
+const calcMat   = () => (data.mat_w + data.mat_wa) / 1000 * data.mat_p;
+const calcExtra = () => data.extra;
+const calcEl    = () => data.el_h * EL_POWER * EL_RATE;
+const calcAm    = () => data.am_h * AM_RATE;
+const calcDef   = () => calcMat() * data.def / 100;
+const calcWork  = () => data.w_r * data.w_h;
+const calcCost  = () => calcMat() + calcExtra() + calcEl() + calcAm() + calcDef() + calcWork();
 
 /* ============================================================
    Роутер
@@ -235,6 +246,7 @@ function render() {
     case 'mat_w':  renderMatW(); break;
     case 'mat_wa': renderMatWa(); break;
     case 'mat_p':  renderMatP(); break;
+    case 'extra':  renderExtra(); break;
     case 'el_h':   renderElH(); break;
     case 'am_h':   renderAmH(); break;
     case 'def':    renderDef(); break;
@@ -251,31 +263,24 @@ function goBack() {
 }
 
 /* ============================================================
-   СБРОС — глобальная функция + защита от ошибок
+   СБРОС
    ============================================================ */
 window.resetAll = function() {
   try {
-    // 1. Сбрасываем данные
     data = {
       name: '',
       mat_w: null, mat_wa: null, mat_p: null,
+      extra: null,
       el_h: null,
       am_h: null,
       def: null,
       w_r: null, w_h: null
     };
-
-    // 2. Сбрасываем наценку и шаг
     markup = null;
     step = 0;
-
-    // 3. Перерисовываем
     render();
-
-    // 4. Визуальный отклик
     try { haptic('success'); } catch (e) {}
   } catch (err) {
-    // Если что-то упало — показываем пользователю
     const msg = 'Ошибка при сбросе: ' + (err && err.message ? err.message : err);
     if (tg && tg.showAlert) tg.showAlert(msg);
     else alert(msg);
@@ -359,7 +364,7 @@ function renderName() {
 }
 
 /* ============================================================
-   Шаг 1 — Материал: вес
+   Материал
    ============================================================ */
 function renderMatW() {
   numStep({
@@ -370,9 +375,6 @@ function renderMatW() {
   });
 }
 
-/* ============================================================
-   Шаг 2 — Материал: отходы
-   ============================================================ */
 function renderMatWa() {
   numStep({
     title: 'Материал',
@@ -382,9 +384,6 @@ function renderMatWa() {
   });
 }
 
-/* ============================================================
-   Шаг 3 — Материал: цена за кг
-   ============================================================ */
 function renderMatP() {
   numStep({
     title: 'Материал',
@@ -396,7 +395,20 @@ function renderMatP() {
 }
 
 /* ============================================================
-   Шаг 4 — Электричество: часы
+   Дополнительные расходы
+   ============================================================ */
+function renderExtra() {
+  numStep({
+    title: 'Дополнительные расходы',
+    sub: 'Сумма прочих расходов: крепёж, упаковка, доставка и т.п.',
+    label: 'Сумма, <span class="rub">Б</span>',
+    key: 'extra',
+    previewFn: (v) => fmt(v)
+  });
+}
+
+/* ============================================================
+   Электричество
    ============================================================ */
 function renderElH() {
   numStep({
@@ -409,7 +421,7 @@ function renderElH() {
 }
 
 /* ============================================================
-   Шаг 5 — Амортизация: часы
+   Амортизация
    ============================================================ */
 function renderAmH() {
   numStep({
@@ -422,7 +434,7 @@ function renderAmH() {
 }
 
 /* ============================================================
-   Шаг 6 — Брак
+   Брак
    ============================================================ */
 function renderDef() {
   screenEl.innerHTML = `
@@ -474,7 +486,7 @@ function renderDef() {
 }
 
 /* ============================================================
-   Шаг 7 — Работа: ставка
+   Работа
    ============================================================ */
 function renderWR() {
   screenEl.innerHTML = `
@@ -515,9 +527,6 @@ function renderWR() {
   });
 }
 
-/* ============================================================
-   Шаг 8 — Работа: часы
-   ============================================================ */
 function renderWH() {
   numStep({
     title: 'Работа',
@@ -529,15 +538,16 @@ function renderWH() {
 }
 
 /* ============================================================
-   Шаг 9 — Результат
+   Результат
    ============================================================ */
 function renderResult() {
-  const mat = calcMat();
-  const el  = calcEl();
-  const am  = calcAm();
-  const de  = calcDef();
-  const wo  = calcWork();
-  const cost = mat + el + am + de + wo;
+  const mat   = calcMat();
+  const extra = calcExtra();
+  const el    = calcEl();
+  const am    = calcAm();
+  const de    = calcDef();
+  const wo    = calcWork();
+  const cost  = mat + extra + el + am + de + wo;
 
   let markupBlock = '';
   if (markup !== null) {
@@ -560,6 +570,7 @@ function renderResult() {
 
     <div class="card">
       <div class="result-row"><span>Материал</span><span>${fmt(mat)}</span></div>
+      <div class="result-row"><span>Дополнительные расходы</span><span>${fmt(extra)}</span></div>
       <div class="result-row"><span>Электричество</span><span>${fmt(el)}</span></div>
       <div class="result-row"><span>Амортизация</span><span>${fmt(am)}</span></div>
       <div class="result-row"><span>Брак (${data.def}%)</span><span>${fmt(de)}</span></div>
@@ -589,7 +600,6 @@ function renderResult() {
 
   document.getElementById('backBtn').addEventListener('click', goBack);
 
-  // Двойная страховка: и inline onclick, и addEventListener
   const rb = document.getElementById('resetBtn');
   if (rb) {
     rb.addEventListener('click', function(e) {
